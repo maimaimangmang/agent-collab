@@ -1,0 +1,15 @@
+{
+  "name": "agent-collab",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A shared task room for people and their coding agents",
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "start": "node src/server.mjs",
+    "dev": "node --watch src/server.mjs",
+    "connector": "node bin/connector.mjs",
+    "test": "node --test test/*.test.mjs",
+    "check": "node --check src/server.mjs && node --check src/store.mjs && node --check public/app.js && node --check bin/connector.mjs && node --check bin/collab.mjs"
+  }
+}
