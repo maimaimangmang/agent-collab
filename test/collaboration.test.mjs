@@ -1,121 +1,412 @@
-import test from 'node:test';
-import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { createApp } from '../src/server.mjs';
-import { Store } from '../src/store.mjs';
+import test from "node:test";
+import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createApp } from "../src/server.mjs";
+import { Store } from "../src/store.mjs";
 
-async function setup(t,options={}) {
-  const app=createApp(options); await new Promise(r=>app.server.listen(0,'127.0.0.1',r));
-  t.after(()=>new Promise(r=>app.server.close(r)));
-  const base=`http://127.0.0.1:${app.server.address().port}/api/`;
-  const request=async(path,body,token='')=>{
-    const response=await fetch(base+path,{method:body===undefined?'GET':'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},body:body===undefined?undefined:JSON.stringify(body)});
-    return {status:response.status,...await response.json()};
+async function setup(t, options = {}) {
+  const app = createApp(options);
+  await new Promise((r) => app.server.listen(0, "127.0.0.1", r));
+  t.after(() => new Promise((r) => app.server.close(r)));
+  const base = `http://127.0.0.1:${app.server.address().port}/api/`;
+  const request = async (path, body, token = "") => {
+    const response = await fetch(base + path, {
+      method: body === undefined ? "GET" : "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    return { status: response.status, ...(await response.json()) };
   };
-  const owner=await request('spaces',{name:'Test team',goal:'Ship an API together',memberName:'Owner'});
-  assert.equal(owner.status,201);
-  const invite=await request('invites',{},owner.token);
-  const member=await request('join',{invite:invite.invite,name:'Partner'});
-  const agent=await request('agents',{name:'Partner Codex',kind:'codex'},member.token);
-  const task=async(overrides={})=>request('tasks',{title:'Implement API',description:'Implement GET /health',acceptance:'A health check returns 200',agentId:agent.agentId,...overrides},owner.token);
-  return {...app,request,owner,member,agent,task};
+  const owner = await request("spaces", {
+    name: "Test team",
+    goal: "Ship an API together",
+    memberName: "Owner",
+  });
+  assert.equal(owner.status, 201);
+  const invite = await request("invites", {}, owner.token);
+  const member = await request("join", {
+    invite: invite.invite,
+    name: "Partner",
+  });
+  const agent = await request(
+    "agents",
+    { name: "Partner Codex", kind: "codex" },
+    member.token,
+  );
+  const task = async (overrides = {}) =>
+    request(
+      "tasks",
+      {
+        title: "Implement API",
+        description: "Implement GET /health",
+        acceptance: "A health check returns 200",
+        agentId: agent.agentId,
+        ...overrides,
+      },
+      owner.token,
+    );
+  return { ...app, request, owner, member, agent, task };
 }
-test('two members collaborate through HTTP, with exactly one winner when claiming',async t=>{
-  const {request,owner,member,agent,task}=await setup(t);
-  const item=await task();
-  const claims=await Promise.all([1,2].map(()=>request('worker/claim',{taskId:item.taskId,kind:'codex'},agent.token)));
-  assert.deepEqual(claims.map(r=>r.status).sort(),[200,409]);
-  const run=claims.find(r=>r.status===200);
-  const body={messageId:'message-1',kind:'question',content:'Should /health require authentication?'};
-  assert.equal((await request('run/message',body,run.runToken)).status,200);
-  assert.equal((await request('run/message',body,run.runToken)).duplicate,true);
-  await request('decisions',{content:'Health endpoint is public.'},owner.token);
-  const context=await request('run/context',undefined,run.runToken);
-  assert.equal(context.decisions.length,1);
-  assert.equal(context.messages.filter(m=>m.content===body.content).length,1);
-  await request('worker/finish',{runId:run.runId,outcome:'success',summary:'Implemented and tested',artifact:'branch info'},agent.token);
-  let state=await request('state',undefined,owner.token);
-  assert.equal(state.tasks[0].status,'review');
-  assert.equal((await request(`tasks/${item.taskId}/action`,{action:'approve'},member.token)).status,403);
-  assert.equal((await request(`tasks/${item.taskId}/action`,{action:'approve'},owner.token)).status,200);
-  state=await request('state',undefined,owner.token);
-  assert.equal(state.tasks[0].status,'done');
-  assert.ok(!JSON.stringify(state).includes('token_hash'));
-  assert.equal((await request('run/context',undefined,run.runToken)).status,409);
+test("two members collaborate through HTTP, with exactly one winner when claiming", async (t) => {
+  const { request, owner, member, agent, task } = await setup(t);
+  const item = await task();
+  const claims = await Promise.all(
+    [1, 2].map(() =>
+      request(
+        "worker/claim",
+        { taskId: item.taskId, kind: "codex" },
+        agent.token,
+      ),
+    ),
+  );
+  assert.deepEqual(claims.map((r) => r.status).sort(), [200, 409]);
+  const run = claims.find((r) => r.status === 200);
+  const body = {
+    messageId: "message-1",
+    kind: "question",
+    content: "Should /health require authentication?",
+  };
+  assert.equal((await request("run/message", body, run.runToken)).status, 200);
+  assert.equal(
+    (await request("run/message", body, run.runToken)).duplicate,
+    true,
+  );
+  await request(
+    "decisions",
+    { content: "Health endpoint is public." },
+    owner.token,
+  );
+  const context = await request("run/context", undefined, run.runToken);
+  assert.equal(context.decisions.length, 1);
+  assert.equal(
+    context.messages.filter((m) => m.content === body.content).length,
+    1,
+  );
+  await request(
+    "worker/finish",
+    {
+      runId: run.runId,
+      outcome: "success",
+      summary: "Implemented and tested",
+      artifact: "branch info",
+    },
+    agent.token,
+  );
+  let state = await request("state", undefined, owner.token);
+  assert.equal(state.tasks[0].status, "review");
+  assert.equal(
+    (
+      await request(
+        `tasks/${item.taskId}/action`,
+        { action: "approve" },
+        member.token,
+      )
+    ).status,
+    403,
+  );
+  assert.equal(
+    (
+      await request(
+        `tasks/${item.taskId}/action`,
+        { action: "approve" },
+        owner.token,
+      )
+    ).status,
+    200,
+  );
+  state = await request("state", undefined, owner.token);
+  assert.equal(state.tasks[0].status, "done");
+  assert.ok(!JSON.stringify(state).includes("token_hash"));
+  assert.equal(
+    (await request("run/context", undefined, run.runToken)).status,
+    409,
+  );
 });
-test('space isolation, role boundaries and runtime identity are enforced',async t=>{
-  const {request,owner,member,agent,task}=await setup(t);
-  const other=await request('spaces',{name:'Other',goal:'Private project',memberName:'Someone'});
-  const item=await task();
-  assert.equal((await request(`tasks/${item.taskId}/assign`,{agentId:agent.agentId},other.token)).status,404);
-  assert.equal((await request('messages',{taskId:item.taskId,content:'Cross-space write'},other.token)).status,404);
-  const ownerAgent=await request('agents',{name:'Owner Claude',kind:'claude'},owner.token);
-  assert.equal((await request('tasks',{title:'No',description:'No',acceptance:'No',agentId:ownerAgent.agentId},member.token)).status,403);
-  assert.equal((await request('worker/claim',{taskId:item.taskId,kind:'claude'},agent.token)).status,400);
-  assert.equal((await request('state',undefined,agent.token)).status,401);
-  assert.equal((await request('decisions',{content:'Cannot override owner'},member.token)).status,403);
-  assert.equal((await request('invites',{},member.token)).status,403);
-  assert.equal((await request('worker/claim',{taskId:item.taskId},owner.token)).status,401);
-  const state=await request('state',undefined,other.token);
-  assert.equal(state.tasks.length,0);
+test("space isolation, role boundaries and runtime identity are enforced", async (t) => {
+  const { request, owner, member, agent, task } = await setup(t);
+  const other = await request("spaces", {
+    name: "Other",
+    goal: "Private project",
+    memberName: "Someone",
+  });
+  const item = await task();
+  assert.equal(
+    (
+      await request(
+        `tasks/${item.taskId}/assign`,
+        { agentId: agent.agentId },
+        other.token,
+      )
+    ).status,
+    404,
+  );
+  assert.equal(
+    (
+      await request(
+        "messages",
+        { taskId: item.taskId, content: "Cross-space write" },
+        other.token,
+      )
+    ).status,
+    404,
+  );
+  const ownerAgent = await request(
+    "agents",
+    { name: "Owner Claude", kind: "claude" },
+    owner.token,
+  );
+  assert.equal(
+    (
+      await request(
+        "tasks",
+        {
+          title: "No",
+          description: "No",
+          acceptance: "No",
+          agentId: ownerAgent.agentId,
+        },
+        member.token,
+      )
+    ).status,
+    403,
+  );
+  assert.equal(
+    (
+      await request(
+        "worker/claim",
+        { taskId: item.taskId, kind: "claude" },
+        agent.token,
+      )
+    ).status,
+    400,
+  );
+  assert.equal((await request("state", undefined, agent.token)).status, 401);
+  assert.equal(
+    (
+      await request(
+        "decisions",
+        { content: "Cannot override owner" },
+        member.token,
+      )
+    ).status,
+    403,
+  );
+  assert.equal((await request("invites", {}, member.token)).status, 403);
+  assert.equal(
+    (await request("worker/claim", { taskId: item.taskId }, owner.token))
+      .status,
+    401,
+  );
+  const state = await request("state", undefined, other.token);
+  assert.equal(state.tasks.length, 0);
 });
-test('dependencies await human approval, blocked reports remain waiting',async t=>{
-  const {request,owner,agent,task}=await setup(t);
-  const first=await task({title:'Define contract'});
-  const second=await task({title:'Build client',dependsOn:first.taskId});
-  assert.equal((await request('worker/claim',{taskId:second.taskId},agent.token)).status,409);
-  const run=await request('worker/claim',{taskId:first.taskId},agent.token);
-  await request('worker/finish',{runId:run.runId,outcome:'success',summary:'Contract ready'},agent.token);
-  assert.equal((await request('worker/claim',{taskId:second.taskId},agent.token)).status,409);
-  await request(`tasks/${first.taskId}/action`,{action:'approve'},owner.token);
-  const dependent=await request('worker/claim',{taskId:second.taskId},agent.token);
-  assert.equal(dependent.context.results[0].summary,'Contract ready');
-  await request('run/message',{messageId:'blocked-1',kind:'blocked',content:'Need endpoint credentials'},dependent.runToken);
-  await request('worker/finish',{runId:dependent.runId,outcome:'success',summary:'Cannot proceed'},agent.token);
-  assert.equal((await request('state',undefined,owner.token)).tasks.find(t=>t.id===second.taskId).status,'waiting');
+test("dependencies await human approval, blocked reports remain waiting", async (t) => {
+  const { request, owner, agent, task } = await setup(t);
+  const first = await task({ title: "Define contract" });
+  const second = await task({ title: "Build client", dependsOn: first.taskId });
+  assert.equal(
+    (await request("worker/claim", { taskId: second.taskId }, agent.token))
+      .status,
+    409,
+  );
+  const run = await request(
+    "worker/claim",
+    { taskId: first.taskId },
+    agent.token,
+  );
+  await request(
+    "worker/finish",
+    { runId: run.runId, outcome: "success", summary: "Contract ready" },
+    agent.token,
+  );
+  assert.equal(
+    (await request("worker/claim", { taskId: second.taskId }, agent.token))
+      .status,
+    409,
+  );
+  await request(
+    `tasks/${first.taskId}/action`,
+    { action: "approve" },
+    owner.token,
+  );
+  const dependent = await request(
+    "worker/claim",
+    { taskId: second.taskId },
+    agent.token,
+  );
+  assert.equal(dependent.context.results[0].summary, "Contract ready");
+  await request(
+    "run/message",
+    {
+      messageId: "blocked-1",
+      kind: "blocked",
+      content: "Need endpoint credentials",
+    },
+    dependent.runToken,
+  );
+  await request(
+    "worker/finish",
+    { runId: dependent.runId, outcome: "success", summary: "Cannot proceed" },
+    agent.token,
+  );
+  assert.equal(
+    (await request("state", undefined, owner.token)).tasks.find(
+      (t) => t.id === second.taskId,
+    ).status,
+    "waiting",
+  );
 });
-test('lost leases block reassignment until stopped, stale runs cannot alter a retry',async t=>{
-  let now=100000;
-  const {request,owner,agent,task}=await setup(t,{storeOptions:{now:()=>now,leaseMs:1000}});
-  const item=await task();const run=await request('worker/claim',{taskId:item.taskId},agent.token);
-  now+=1001;
-  assert.equal((await request('state',undefined,owner.token)).tasks[0].status,'blocked');
-  assert.equal((await request('worker/next',undefined,agent.token)).task,null);
-  assert.equal((await request('run/message',{messageId:'stale',content:'Stale write'},run.runToken)).status,409);
-  assert.equal((await request(`tasks/${item.taskId}/action`,{action:'retry'},owner.token)).status,409);
-  await request(`tasks/${item.taskId}/action`,{action:'retry',confirmStopped:true},owner.token);
-  const retry=await request('worker/claim',{taskId:item.taskId},agent.token);
-  assert.notEqual(retry.runId,run.runId);
-  assert.equal((await request('worker/finish',{runId:run.runId,outcome:'success',summary:'Late result'},agent.token)).status,409);
-  assert.equal((await request('state',undefined,owner.token)).tasks[0].current_run,retry.runId);
+test("lost leases block reassignment until stopped, stale runs cannot alter a retry", async (t) => {
+  let now = 100000;
+  const { request, owner, agent, task } = await setup(t, {
+    storeOptions: { now: () => now, leaseMs: 1000 },
+  });
+  const item = await task();
+  const run = await request(
+    "worker/claim",
+    { taskId: item.taskId },
+    agent.token,
+  );
+  now += 1001;
+  assert.equal(
+    (await request("state", undefined, owner.token)).tasks[0].status,
+    "blocked",
+  );
+  assert.equal(
+    (await request("worker/next", undefined, agent.token)).task,
+    null,
+  );
+  assert.equal(
+    (
+      await request(
+        "run/message",
+        { messageId: "stale", content: "Stale write" },
+        run.runToken,
+      )
+    ).status,
+    409,
+  );
+  assert.equal(
+    (
+      await request(
+        `tasks/${item.taskId}/action`,
+        { action: "retry" },
+        owner.token,
+      )
+    ).status,
+    409,
+  );
+  await request(
+    `tasks/${item.taskId}/action`,
+    { action: "retry", confirmStopped: true },
+    owner.token,
+  );
+  const retry = await request(
+    "worker/claim",
+    { taskId: item.taskId },
+    agent.token,
+  );
+  assert.notEqual(retry.runId, run.runId);
+  assert.equal(
+    (
+      await request(
+        "worker/finish",
+        { runId: run.runId, outcome: "success", summary: "Late result" },
+        agent.token,
+      )
+    ).status,
+    409,
+  );
+  assert.equal(
+    (await request("state", undefined, owner.token)).tasks[0].current_run,
+    retry.runId,
+  );
 });
-test('cancel requests and expired leases cannot produce a successful review',async t=>{
-  let now=100000;
-  const {request,owner,agent,task}=await setup(t,{storeOptions:{now:()=>now,leaseMs:1000}});
-  const item=await task();let run=await request('worker/claim',{taskId:item.taskId},agent.token);
-  await request(`tasks/${item.taskId}/action`,{action:'cancel'},owner.token);
-  assert.equal((await request('worker/heartbeat',{runId:run.runId},agent.token)).cancel,true);
-  await request('worker/finish',{runId:run.runId,outcome:'success',summary:'Exit zero despite cancellation'},agent.token);
-  assert.equal((await request('state',undefined,owner.token)).tasks[0].status,'blocked');
-  await request(`tasks/${item.taskId}/action`,{action:'retry'},owner.token);
-  run=await request('worker/claim',{taskId:item.taskId},agent.token);now+=1001;
-  const result=await request('worker/finish',{runId:run.runId,outcome:'success',summary:'Late success without snapshot sweep'},agent.token);
-  assert.equal(result.status,'cancelled');
+test("cancel requests and expired leases cannot produce a successful review", async (t) => {
+  let now = 100000;
+  const { request, owner, agent, task } = await setup(t, {
+    storeOptions: { now: () => now, leaseMs: 1000 },
+  });
+  const item = await task();
+  let run = await request("worker/claim", { taskId: item.taskId }, agent.token);
+  await request(
+    `tasks/${item.taskId}/action`,
+    { action: "cancel" },
+    owner.token,
+  );
+  assert.equal(
+    (await request("worker/heartbeat", { runId: run.runId }, agent.token))
+      .cancel,
+    true,
+  );
+  await request(
+    "worker/finish",
+    {
+      runId: run.runId,
+      outcome: "success",
+      summary: "Exit zero despite cancellation",
+    },
+    agent.token,
+  );
+  assert.equal(
+    (await request("state", undefined, owner.token)).tasks[0].status,
+    "blocked",
+  );
+  await request(
+    `tasks/${item.taskId}/action`,
+    { action: "retry" },
+    owner.token,
+  );
+  run = await request("worker/claim", { taskId: item.taskId }, agent.token);
+  now += 1001;
+  const result = await request(
+    "worker/finish",
+    {
+      runId: run.runId,
+      outcome: "success",
+      summary: "Late success without snapshot sweep",
+    },
+    agent.token,
+  );
+  assert.equal(result.status, "cancelled");
 });
-test('persistent state survives reopening; invite limits and expiry hold',async t=>{
-  const dir=await mkdtemp(join(tmpdir(),'collab-store-'));t.after(()=>rm(dir,{recursive:true,force:true}));
-  let now=100000;
-  let store=new Store(join(dir,'state.sqlite'),{now:()=>now});
-  const auth=store.create({name:'Persistent',goal:'Keep decisions',memberName:'Owner'});
-  let member=store.member(auth.token);const invitation=store.invite(member);
-  for(let i=0;i<10;i++)store.join({invite:invitation.invite,name:`Person ${i}`});
-  assert.throws(()=>store.join({invite:invitation.invite,name:'Extra'}),/10 人/);
-  const expired=store.invite(member);now+=8*86400000;
-  assert.throws(()=>store.join({invite:expired.invite,name:'Late'}),/过期/);
-  store.postDecision(member,{content:'Persistent decision'});store.close();
-  store=new Store(join(dir,'state.sqlite'));t.after(()=>store.close());member=store.member(auth.token);
-  assert.equal(store.snapshot(member).decisions[0].content,'Persistent decision');
-  assert.equal(store.snapshot(member).members.length,11);
+test("persistent state survives reopening; invite limits and expiry hold", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "collab-store-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  let now = 100000;
+  let store = new Store(join(dir, "state.sqlite"), { now: () => now });
+  const auth = store.create({
+    name: "Persistent",
+    goal: "Keep decisions",
+    memberName: "Owner",
+  });
+  let member = store.member(auth.token);
+  const invitation = store.invite(member);
+  for (let i = 0; i < 10; i++)
+    store.join({ invite: invitation.invite, name: `Person ${i}` });
+  assert.throws(
+    () => store.join({ invite: invitation.invite, name: "Extra" }),
+    /10 人/,
+  );
+  const expired = store.invite(member);
+  now += 8 * 86400000;
+  assert.throws(
+    () => store.join({ invite: expired.invite, name: "Late" }),
+    /过期/,
+  );
+  store.postDecision(member, { content: "Persistent decision" });
+  store.close();
+  store = new Store(join(dir, "state.sqlite"));
+  t.after(() => store.close());
+  member = store.member(auth.token);
+  assert.equal(
+    store.snapshot(member).decisions[0].content,
+    "Persistent decision",
+  );
+  assert.equal(store.snapshot(member).members.length, 11);
 });

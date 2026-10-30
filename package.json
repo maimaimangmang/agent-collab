@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "description": "A shared task room for people and their coding agents",
-  "engines": { "node": ">=24" },
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "start": "node src/server.mjs",
     "dev": "node --watch src/server.mjs",
