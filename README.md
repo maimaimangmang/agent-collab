@@ -93,6 +93,8 @@ npm run connector -- --recover /absolute/path/to/pending-result.json --server ht
 
 ## 多台电脑使用
 
+已提供 Dockerfile、Docker Compose、Caddy HTTPS 入口、建空间口令与在线备份命令。完整步骤见 [服务器部署指南](docs/deployment.md)。
+
 默认只监听 `127.0.0.1`。本机邀请链接无法从伙伴电脑访问。
 
 先将服务部署到所有成员可达的机器，使用可信网络与 HTTPS 反向代理，再使用该 HTTPS 地址打开界面、生成邀请与启动连接器：
@@ -107,7 +109,7 @@ npm run connector -- --agent claude --server https://collab.example.com --repo /
 
 反向代理需要保留 Host、Authorization 与 Origin 请求头。连接器只对 loopback 地址允许 HTTP，其他地址必须 HTTPS。`AGENT_COLLAB_DATA` 可指定持久化目录。此版本为单实例服务；请使用 SQLite 在线备份工具，或停服后备份整个数据目录。
 
-当前认证采用高熵 bearer token，服务端只保存哈希。成员凭证存于浏览器本地，邀请 7 天有效、最多使用 10 次。尚未实现 OAuth、凭证撤销/轮换、成员移除、完整审计与多租户运维，不适合直接作为公共 SaaS 开放注册。不要在任务、消息或决定中写入密钥。
+生产环境必须配置 HTTPS 的 `PUBLIC_ORIGIN` 与建空间口令；成员仍通过邀请加入。当前认证采用高熵 bearer token，服务端只保存哈希。成员凭证存于浏览器本地，邀请 7 天有效、最多使用 10 次。尚未实现 OAuth、凭证撤销/轮换、成员移除、完整审计与多租户运维，不适合直接作为公共 SaaS 开放注册。不要在任务、消息或决定中写入密钥。
 
 ## 开发与贡献
 
@@ -119,6 +121,7 @@ npm test
 
 测试覆盖双成员 HTTP 协作、权限隔离、并发领取、前置依赖、租约失效、取消、持久化，以及使用**模拟 CLI 子进程**在真实 Git worktree 中执行的 Codex / Claude 适配链路。测试不会调用付费模型。真实 CLI 的账号、权限与版本差异仍需做实机联调。
 
+- [部署、备份与恢复](docs/deployment.md)
 - [架构与状态机](docs/architecture.md)
 - [适配器与 HTTP 协议](docs/adapters.md)
 - [贡献指南](CONTRIBUTING.md)

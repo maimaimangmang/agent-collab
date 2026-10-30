@@ -12,3 +12,4 @@ coverage/
 *.log
 .agent-collab/
 .playwright/
+.deployment/

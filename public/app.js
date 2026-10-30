@@ -101,6 +101,7 @@ async function enter(secret) {
 }
 bindForm("#create-form", async (data) => {
   const result = await api("spaces", data);
+  $("#create-form input[name=setupKey]").value = "";
   await enter(result.token);
   showIdentity(true);
 });
@@ -381,6 +382,16 @@ bindForm("#decision-form", async (data, form) => {
   await refresh();
   toast("项目决定已同步");
 });
+async function loadConfig() {
+  try {
+    const config = await api("config");
+    $("#setup-key-field").hidden = !config.requiresSetupKey;
+    $("#setup-key-field input").required = config.requiresSetupKey;
+  } catch {
+    toast("无法读取服务配置，请检查连接后刷新页面");
+  }
+}
+void loadConfig();
 if (token && !invitation) refresh();
 setInterval(() => {
   if (!invitation || !$("#workspace").hidden) void refresh();

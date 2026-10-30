@@ -1,4 +1,6 @@
 import http from "node:http";
+import { createHash, timingSafeEqual } from "node:crypto";
+import { readConfig, validateConfig } from "./config.mjs";
 import { readFileSync, mkdirSync, chmodSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,7 +12,13 @@ const publicFiles = new Map([
   ["/app.js", ["app.js", "text/javascript"]],
   ["/style.css", ["style.css", "text/css"]],
 ]);
-export function createApp({ database = ":memory:", storeOptions } = {}) {
+export function createApp({
+  database = ":memory:",
+  storeOptions,
+  config = {},
+} = {}) {
+  const settings = validateConfig(config);
+  const setupHash = createHash("sha256").update(settings.setupKey).digest();
   const store = new Store(database, storeOptions);
   const limits = new Map();
   const server = http.createServer(async (req, res) => {
@@ -24,6 +32,12 @@ export function createApp({ database = ":memory:", storeOptions } = {}) {
     };
     try {
       const url = new URL(req.url, "http://localhost");
+      if (
+        url.pathname !== "/api/health" &&
+        settings.publicOrigin &&
+        req.headers.host !== new URL(settings.publicOrigin).host
+      )
+        throw new AppError(403, "请求域名与服务配置不一致");
       if (req.method === "GET" && publicFiles.has(url.pathname)) {
         const [file, type] = publicFiles.get(url.pathname);
         res.writeHead(200, {
@@ -43,8 +57,24 @@ export function createApp({ database = ":memory:", storeOptions } = {}) {
       if (!["GET", "POST"].includes(req.method))
         throw new AppError(405, "不支持的请求方法");
       const origin = req.headers.origin;
-      if (origin && new URL(origin).host !== req.headers.host)
-        throw new AppError(403, "不允许跨站请求");
+      if (origin) {
+        let source;
+        try {
+          source = new URL(origin);
+        } catch {
+          throw new AppError(403, "不允许跨站请求");
+        }
+        const allowed = settings.publicOrigin
+          ? origin === settings.publicOrigin
+          : ["http:", "https:"].includes(source.protocol) &&
+            source.host === req.headers.host;
+        if (!allowed) throw new AppError(403, "不允许跨站请求");
+      }
+      if (url.pathname === "/api/config" && req.method === "GET")
+        return send(200, {
+          requiresSetupKey: !!settings.setupKey,
+          publicOrigin: settings.publicOrigin,
+        });
       let body = {};
       if (req.method === "POST") {
         if (!(req.headers["content-type"] || "").startsWith("application/json"))
@@ -78,6 +108,13 @@ export function createApp({ database = ":memory:", storeOptions } = {}) {
         limits.set(key, limit);
         if (limits.size > 1000)
           for (const [k, v] of limits) if (v.until < now) limits.delete(k);
+        if (route === "POST /api/spaces" && settings.setupKey) {
+          const supplied =
+            typeof body.setupKey === "string" ? body.setupKey : "";
+          const suppliedHash = createHash("sha256").update(supplied).digest();
+          if (!timingSafeEqual(setupHash, suppliedHash))
+            throw new AppError(403, "需要正确的建空间口令，请向服务管理员获取");
+        }
         return send(
           201,
           route.endsWith("/spaces") ? store.create(body) : store.join(body),
@@ -149,7 +186,10 @@ if (
   );
   mkdirSync(dataDir, { recursive: true, mode: 0o700 });
   chmodSync(dataDir, 0o700);
-  const { server } = createApp({ database: join(dataDir, "collab.sqlite") });
+  const { server } = createApp({
+    database: join(dataDir, "collab.sqlite"),
+    config: readConfig(),
+  });
   const host = process.env.HOST || "127.0.0.1",
     port = Number(process.env.PORT || 4317);
   server.listen(port, host, () =>

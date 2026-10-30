@@ -1,0 +1,46 @@
+name: agent-collab
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      PUBLIC_ORIGIN: https://${DOMAIN:?Set DOMAIN in .env}
+      AGENT_COLLAB_SETUP_KEY_FILE: /run/secrets/setup_key
+    secrets: [setup_key]
+    volumes:
+      - app_data:/data
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    networks: [backend]
+    stop_grace_period: 15s
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN in .env}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      app:
+        condition: service_healthy
+    networks: [edge, backend]
+secrets:
+  setup_key:
+    file: ./.deployment/secrets/setup-key
+volumes:
+  app_data:
+  caddy_data:
+  caddy_config:
+networks:
+  edge:
+  backend:
+    internal: true

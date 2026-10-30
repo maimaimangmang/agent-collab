@@ -12,6 +12,8 @@
     "dev": "node --watch src/server.mjs",
     "connector": "node bin/connector.mjs",
     "test": "node --test test/*.test.mjs",
-    "check": "node --check src/server.mjs && node --check src/store.mjs && node --check public/app.js && node --check bin/connector.mjs && node --check bin/collab.mjs"
+    "check": "node --check src/server.mjs && node --check src/store.mjs && node --check public/app.js && node --check bin/connector.mjs && node --check bin/collab.mjs && node --check src/config.mjs && node --check bin/prepare-deploy.mjs && node --check bin/backup.mjs",
+    "deploy:prepare": "node bin/prepare-deploy.mjs",
+    "backup": "node bin/backup.mjs"
   }
 }
