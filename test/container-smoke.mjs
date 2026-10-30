@@ -121,6 +121,9 @@ try {
     "/data/backups/smoke.sqlite",
   );
   await docker("restart", name);
+  // Docker can allocate a different ephemeral host port when restarting.
+  const restartedMapping = await docker("port", name, "4317");
+  port = restartedMapping.stdout.trim().split(":").at(-1);
   await healthy();
   let state = await request("state", undefined, owner.data.token);
   assert.equal(state.data.members.length, 2);
@@ -145,6 +148,10 @@ try {
   console.log(
     "Container: two-member handoff, authorization, backup and restart persistence passed.",
   );
+} catch (error) {
+  const logs = await docker("logs", "--tail", "40", name).catch(() => null);
+  if (logs) console.error(logs.stdout + logs.stderr);
+  throw error;
 } finally {
   await docker("rm", "-f", name).catch(() => {});
   await docker("volume", "rm", volume).catch(() => {});
